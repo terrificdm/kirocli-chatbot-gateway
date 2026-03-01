@@ -140,6 +140,12 @@ class Gateway:
             log.error("[Gateway] No adapters configured")
             return
 
+        # Setup slash command handler for Discord adapter
+        for adapter in self._adapters:
+            if adapter.platform_name == "discord" and hasattr(adapter, "set_slash_handler"):
+                adapter.set_slash_handler(self._handle_slash_command)
+                log.info("[Gateway] Slash command handler set for Discord")
+
         # Start all but last adapter in threads
         for adapter in self._adapters[:-1]:
             log.info("[Gateway] Starting %s adapter in thread...", adapter.platform_name)
@@ -262,6 +268,18 @@ class Gateway:
         if adapter:
             adapter.send_text(chat_id, text)
 
+    def _send_text_nowait(self, platform: str, chat_id: str, text: str):
+        """Send text message without blocking (for command responses).
+        
+        Falls back to send_text if adapter doesn't support nowait.
+        """
+        adapter = self._get_adapter(platform)
+        if adapter:
+            if hasattr(adapter, 'send_text_nowait'):
+                adapter.send_text_nowait(chat_id, text)
+            else:
+                adapter.send_text(chat_id, text)
+
     def _send_card(self, platform: str, chat_id: str, content: str, title: str = "") -> CardHandle | None:
         """Send card via appropriate adapter."""
         adapter = self._get_adapter(platform)
@@ -352,7 +370,7 @@ class Gateway:
                 evt.set()
                 return
             else:
-                self._send_text(platform, chat_id, "⚠️ Please reply y/n/t")
+                self._send_text_nowait(platform, chat_id, "⚠️ Please reply y/n/t")
                 return
 
         # Cancel command
@@ -360,7 +378,7 @@ class Gateway:
             self._handle_cancel(platform, chat_id, key)
             return
 
-        # Slash commands
+        # Commands (/ prefix)
         if text.startswith("/"):
             self._handle_command(platform, chat_id, key, text)
             return
@@ -373,7 +391,11 @@ class Gateway:
         ).start()
 
     def _handle_cancel(self, platform: str, chat_id: str, key: str):
-        """Handle cancel command."""
+        """Handle cancel command.
+        
+        Uses _send_text_nowait to avoid deadlocking Discord's event loop
+        (this is called synchronously from the adapter's message handler).
+        """
         queue_cleared = 0
         with self._queue_lock:
             if key in self._message_queue:
@@ -386,17 +408,17 @@ class Gateway:
 
         if not session_id:
             if queue_cleared:
-                self._send_text(platform, chat_id, f"🗑️ Cleared {queue_cleared} queued message(s)")
+                self._send_text_nowait(platform, chat_id, f"🗑️ Cleared {queue_cleared} queued message(s)")
             else:
-                self._send_text(platform, chat_id, "❌ No active session")
+                self._send_text_nowait(platform, chat_id, "❌ No active session")
             return
 
         acp = self._get_acp(platform)
         if not acp:
             if queue_cleared:
-                self._send_text(platform, chat_id, f"🗑️ Cleared {queue_cleared} queued message(s)")
+                self._send_text_nowait(platform, chat_id, f"🗑️ Cleared {queue_cleared} queued message(s)")
             else:
-                self._send_text(platform, chat_id, "❌ Kiro is not running")
+                self._send_text_nowait(platform, chat_id, "❌ Kiro is not running")
             return
 
         try:
@@ -404,10 +426,10 @@ class Gateway:
             msg = "⏹️ Cancel request sent"
             if queue_cleared:
                 msg += f"\n🗑️ Cleared {queue_cleared} queued message(s)"
-            self._send_text(platform, chat_id, msg)
+            self._send_text_nowait(platform, chat_id, msg)
         except Exception as e:
             log.error("[Gateway] [%s] Cancel failed: %s", key, e)
-            self._send_text(platform, chat_id, f"❌ Cancel failed: {e}")
+            self._send_text_nowait(platform, chat_id, f"❌ Cancel failed: {e}")
 
     def _handle_command(self, platform: str, chat_id: str, key: str, text: str):
         """Handle slash commands."""
@@ -422,152 +444,182 @@ class Gateway:
         elif cmd == "/help":
             self._handle_help_command(platform, chat_id)
         else:
-            self._send_text(platform, chat_id, f"❓ Unknown command: {cmd}\n💡 Send /help for available commands")
+            self._send_text_nowait(platform, chat_id, f"❓ Unknown command: {cmd}\n💡 Send /help for available commands")
 
     def _handle_agent_command(self, platform: str, chat_id: str, key: str, mode_arg: str):
-        """Handle /agent command."""
+        """Handle /agent command (text-based)."""
         with self._contexts_lock:
             ctx = self._contexts.get(key)
             session_id = ctx.session_id if ctx else None
 
-        if not session_id:
-            self._send_text(platform, chat_id, "❌ No session yet. Send a message first.")
-            return
+        acp = self._get_acp(platform)
+        response = self._get_agent_response(acp, session_id, mode_arg)
+        self._send_text_nowait(platform, chat_id, response)
+
+    def _handle_model_command(self, platform: str, chat_id: str, key: str, model_arg: str):
+        """Handle /model command (text-based)."""
+        with self._contexts_lock:
+            ctx = self._contexts.get(key)
+            session_id = ctx.session_id if ctx else None
 
         acp = self._get_acp(platform)
-        if not acp:
-            self._send_text(platform, chat_id, "❌ Kiro is not running")
-            return
+        response = self._get_model_response(acp, session_id, model_arg)
+        self._send_text_nowait(platform, chat_id, response)
 
-        if not mode_arg:
+    def _handle_help_command(self, platform: str, chat_id: str):
+        """Show help."""
+        self._send_text_nowait(platform, chat_id, self._get_help_text())
+
+    def _handle_slash_command(self, platform: str, chat_id: str, cmd: str, args: str) -> str | None:
+        """Handle slash command from Discord adapter.
+        
+        Returns the response text to be sent as interaction followup.
+        This is called synchronously from the adapter.
+        """
+        key = self._make_key(platform, chat_id)
+        
+        with self._contexts_lock:
+            ctx = self._contexts.get(key)
+            session_id = ctx.session_id if ctx else None
+        
+        acp = self._get_acp(platform)
+        
+        if cmd == "help":
+            return self._get_help_text()
+        
+        if cmd == "agent":
+            return self._get_agent_response(acp, session_id, args)
+        
+        if cmd == "model":
+            return self._get_model_response(acp, session_id, args)
+        
+        return f"❓ Unknown command: /{cmd}"
+    
+    def _get_help_text(self) -> str:
+        """Get help text for slash commands."""
+        return """📚 **Available Commands:**
+
+**Agent:**
+• /agent - List available agents
+• /agent <agent_name> - Switch agent
+
+**Model:**
+• /model - List available models
+• /model <model_name> - Switch model
+
+**Other:**
+• /help - Show this help"""
+    
+    def _get_agent_response(self, acp: ACPClient | None, session_id: str | None, args: str) -> str:
+        """Get agent command response."""
+        if not session_id:
+            return "❌ No session yet. Send a message first."
+        
+        if not acp:
+            return "❌ Kiro is not running"
+        
+        if not args:
+            # List agents
             modes_data = acp.get_session_modes(session_id)
             if not modes_data:
-                self._send_text(platform, chat_id, "❓ No agent info available")
-                return
+                return "❓ No agent info available"
             
             current_mode = modes_data.get("currentModeId", "")
             available_modes = modes_data.get("availableModes", [])
             
             if not available_modes:
-                self._send_text(platform, chat_id, "❓ No agents available")
-                return
+                return "❓ No agents available"
             
-            lines = ["📋 **Available Agents:**", ""]
+            lines = ["📋 **Available agents:**", ""]
             for mode in available_modes:
-                mode_id = mode.get("id", "") if isinstance(mode, dict) else str(mode)
-                mode_name = mode.get("name", mode_id) if isinstance(mode, dict) else str(mode)
-                marker = " ✓" if mode_id == current_mode else ""
-                if mode_id == mode_name:
-                    lines.append(f"• {mode_id}{marker}")
-                else:
-                    lines.append(f"• {mode_id} - {mode_name}{marker}")
+                mode_id = mode.get("id", "unknown")
+                mode_name = mode.get("name", mode_id)
+                marker = "▶️" if mode_id == current_mode else "•"
+                lines.append(f"{marker} **{mode_name}**")
+            
             lines.append("")
-            lines.append(f"Current: **{current_mode}**")
-            lines.append("💡 Use /agent agent_name to switch")
-            self._send_text(platform, chat_id, "\n".join(lines))
-            return
-
-        # Validate and switch
-        modes_data = acp.get_session_modes(session_id)
-        valid_mode_ids = set()
-        if modes_data:
-            for mode in modes_data.get("availableModes", []):
-                mid = mode.get("id", "") if isinstance(mode, dict) else str(mode)
-                if mid:
-                    valid_mode_ids.add(mid)
-        
-        if valid_mode_ids and mode_arg not in valid_mode_ids:
-            self._send_text(platform, chat_id, f"❌ Invalid agent: {mode_arg}\n\n💡 Use /agent to see available agents")
-            return
-
-        try:
-            acp.session_set_mode(session_id, mode_arg)
-            self._send_text(platform, chat_id, f"✅ Switched to agent: **{mode_arg}**")
-        except Exception as e:
-            log.error("[Gateway] [%s] Set mode failed: %s", key, e)
-            self._send_text(platform, chat_id, f"❌ Switch failed: {e}")
-
-    def _handle_model_command(self, platform: str, chat_id: str, key: str, model_arg: str):
-        """Handle /model command."""
-        with self._contexts_lock:
-            ctx = self._contexts.get(key)
-            session_id = ctx.session_id if ctx else None
-
+            lines.append("💡 Use /agent <agent_name> to switch")
+            return "\n".join(lines)
+        else:
+            # Switch agent
+            valid_ids = set()
+            modes_data = acp.get_session_modes(session_id)
+            if modes_data:
+                for m in modes_data.get("availableModes", []):
+                    if m.get("id"):
+                        valid_ids.add(m["id"])
+                    if m.get("name"):
+                        valid_ids.add(m["name"])
+            
+            if valid_ids and args not in valid_ids:
+                return f"❌ Invalid agent: {args}\n\n💡 Use /agent to see available agents"
+            
+            try:
+                acp.session_set_mode(session_id, args)
+                return f"✅ Switched to agent: **{args}**"
+            except Exception as e:
+                return f"❌ Switch failed: {e}"
+    
+    def _get_model_response(self, acp: ACPClient | None, session_id: str | None, args: str) -> str:
+        """Get model command response."""
         if not session_id:
-            self._send_text(platform, chat_id, "❌ No session yet. Send a message first.")
-            return
-
-        acp = self._get_acp(platform)
+            return "❌ No session yet. Send a message first."
+        
         if not acp:
-            self._send_text(platform, chat_id, "❌ Kiro is not running")
-            return
-
-        if not model_arg:
+            return "❌ Kiro is not running"
+        
+        if not args:
+            # List models
             options = acp.get_model_options(session_id)
             current_model = acp.get_current_model(session_id)
             
-            if options:
-                lines = ["📋 **Available Models:**", ""]
-                for opt in options:
-                    if isinstance(opt, dict):
-                        model_id = opt.get("modelId", "") or opt.get("id", "")
-                        model_name = opt.get("name", model_id)
-                    else:
-                        model_id = str(opt)
-                        model_name = model_id
-                    
-                    if model_id:
-                        marker = " ✓" if model_id == current_model else ""
-                        if model_id == model_name:
-                            lines.append(f"• {model_id}{marker}")
-                        else:
-                            lines.append(f"• {model_id} - {model_name}{marker}")
-                lines.append("")
-                lines.append(f"Current: **{current_model}**")
-                lines.append("💡 Use /model model_name to switch")
-                self._send_text(platform, chat_id, "\n".join(lines))
-            else:
-                self._send_text(platform, chat_id, "❓ Cannot get model list")
-            return
-
-        # Validate and switch
-        options = acp.get_model_options(session_id)
-        valid_model_ids = set()
-        if options:
+            if not options:
+                if current_model:
+                    return f"📊 **Current model:** {current_model}\n\n(No other models available)"
+                return "❓ No model info available"
+            
+            lines = ["📋 **Available Models:**", ""]
             for opt in options:
                 if isinstance(opt, dict):
-                    mid = opt.get("modelId", "") or opt.get("id", "")
-                    if mid:
-                        valid_model_ids.add(mid)
+                    model_id = opt.get("modelId", "") or opt.get("id", "")
+                    model_name = opt.get("name", model_id)
                 else:
-                    valid_model_ids.add(str(opt))
-        
-        if valid_model_ids and model_arg not in valid_model_ids:
-            self._send_text(platform, chat_id, f"❌ Invalid model: {model_arg}\n\n💡 Use /model to see available models")
-            return
-
-        try:
-            acp.session_set_model(session_id, model_arg)
-            self._send_text(platform, chat_id, f"✅ Switched to model: **{model_arg}**")
-        except Exception as e:
-            log.error("[Gateway] [%s] Set model failed: %s", key, e)
-            self._send_text(platform, chat_id, f"❌ Switch failed: {e}")
-
-    def _handle_help_command(self, platform: str, chat_id: str):
-        """Show help."""
-        help_text = """📚 **Available Commands:**
-
-**Agent:**
-• /agent - List available agents
-• /agent agent_name - Switch agent
-
-**Model:**
-• /model - List available models
-• /model model_name - Switch model
-
-**Other:**
-• /help - Show this help"""
-        self._send_text(platform, chat_id, help_text)
+                    model_id = str(opt)
+                    model_name = model_id
+                
+                if model_id:
+                    marker = "▶️" if model_id == current_model else "•"
+                    if model_id == model_name:
+                        lines.append(f"{marker} {model_id}")
+                    else:
+                        lines.append(f"{marker} {model_id} - {model_name}")
+            
+            lines.append("")
+            if current_model:
+                lines.append(f"**Current:** {current_model}")
+            lines.append("💡 Use /model <model_name> to switch")
+            return "\n".join(lines)
+        else:
+            # Switch model
+            options = acp.get_model_options(session_id)
+            valid_ids = set()
+            if options:
+                for opt in options:
+                    if isinstance(opt, dict):
+                        mid = opt.get("modelId", "") or opt.get("id", "")
+                        if mid:
+                            valid_ids.add(mid)
+                    else:
+                        valid_ids.add(str(opt))
+            
+            if valid_ids and args not in valid_ids:
+                return f"❌ Invalid model: {args}\n\n💡 Use /model to see available models"
+            
+            try:
+                acp.session_set_model(session_id, args)
+                return f"✅ Switched to model: **{args}**"
+            except Exception as e:
+                return f"❌ Switch failed: {e}"
 
     def _process_message(self, platform: str, chat_id: str, key: str, text: str, images: list[tuple[str, str]] | None = None):
         """Process a message, queuing if busy."""
@@ -609,8 +661,15 @@ class Gateway:
     def _process_single_message(self, platform: str, chat_id: str, key: str, text: str, images: list[tuple[str, str]] | None = None):
         """Process a single message."""
         card_handle = None
+        adapter = self._adapter_map.get(platform)
+        
         try:
             card_handle = self._send_card(platform, chat_id, "🤔 Thinking...")
+            
+            # Start typing loop for platforms that don't use card updates (e.g., Discord)
+            # Discord's send_card already sends one typing indicator, the loop continues it
+            if adapter and not card_handle:
+                adapter.start_typing_loop(chat_id)
 
             try:
                 acp = self._ensure_acp(platform)
@@ -678,6 +737,11 @@ class Gateway:
                     log.warning("[Gateway] [%s] kiro-cli died, will restart on next message", platform)
                     self._acp_clients.pop(platform, None)
                     self._last_activity.pop(platform, None)
+        
+        finally:
+            # Always stop typing loop when done
+            if adapter and not card_handle:
+                adapter.stop_typing_loop(chat_id)
 
     def _get_or_create_session(self, platform: str, chat_id: str, key: str, acp: ACPClient) -> str:
         """Get or create ACP session for a chat."""

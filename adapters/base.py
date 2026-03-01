@@ -111,6 +111,25 @@ class ChatAdapter(ABC):
         """
         pass
 
+    def start_typing_loop(self, chat_id: str) -> None:
+        """Start a background loop that sends typing indicators periodically.
+        
+        Used for platforms where typing indicator expires (e.g., Discord).
+        Default no-op; override in adapters that need it.
+        
+        Args:
+            chat_id: Target chat identifier
+        """
+        pass
+
+    def stop_typing_loop(self, chat_id: str) -> None:
+        """Stop the typing indicator loop for a chat.
+        
+        Args:
+            chat_id: Target chat identifier
+        """
+        pass
+
     def supports_card_update(self) -> bool:
         """Whether this platform supports updating sent messages.
         

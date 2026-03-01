@@ -106,7 +106,7 @@ class ACPClient:
                 "fs": {"readTextFile": True, "writeTextFile": True},
                 "terminal": True,
             },
-            "clientInfo": {"name": "feishu-kirocli-bot", "version": "0.1.0"},
+            "clientInfo": {"name": "kirocli-chatbot-gateway", "version": "0.1.0"},
         })
         log.info("[ACP] Initialized: %s", json.dumps(result, ensure_ascii=False)[:200])
         return result

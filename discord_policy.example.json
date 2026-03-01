@@ -1,0 +1,34 @@
+{
+  "_comment": "Discord Access Policy - Fine-grained control. See README for details.",
+
+  "dm": {
+    "enabled": true,
+    "policy": "allowlist",
+    "allowFrom": ["YOUR_USER_ID"]
+  },
+
+  "groupPolicy": "allowlist",
+
+  "guilds": {
+    "*": {
+      "requireMention": true
+    },
+
+    "YOUR_GUILD_ID": {
+      "requireMention": false,
+      "users": ["YOUR_USER_ID"],
+      "channels": {
+        "*": {
+          "allow": true
+        },
+        "SPECIFIC_CHANNEL_ID": {
+          "allow": true,
+          "requireMention": true,
+          "users": ["YOUR_USER_ID", "ANOTHER_USER_ID"]
+        }
+      }
+    }
+  },
+
+  "allowBots": false
+}

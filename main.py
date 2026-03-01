@@ -5,7 +5,7 @@ import sys
 
 from config import load_config
 from gateway import Gateway
-from adapters import FeishuAdapter
+from adapters import FeishuAdapter, DiscordAdapter
 
 
 def main():
@@ -38,10 +38,11 @@ def main():
         if not config.discord.bot_token:
             log.error("Discord enabled but DISCORD_BOT_TOKEN not set")
             sys.exit(1)
-        log.info("Discord adapter enabled (not yet implemented)")
-        # TODO: Add Discord adapter when implemented
-        # from adapters.discord import DiscordAdapter
-        # adapters.append(DiscordAdapter(bot_token=config.discord.bot_token))
+        log.info("Discord adapter enabled")
+        adapters.append(DiscordAdapter(
+            bot_token=config.discord.bot_token,
+            policy=config.discord.policy,
+        ))
 
     if not adapters:
         log.error("No adapters enabled. Set FEISHU_ENABLED=true or DISCORD_ENABLED=true")

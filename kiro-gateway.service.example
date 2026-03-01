@@ -1,0 +1,22 @@
+[Unit]
+Description=Kiro CLI Chatbot Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu                            # ← Change to your username
+WorkingDirectory=/path/to/kirocli-chatbot-gateway
+ExecStart=/path/to/kirocli-chatbot-gateway/venv/bin/python main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# IMPORTANT: systemd does not inherit your shell PATH.
+# Add paths for kiro-cli, npx, node, etc. Adjust for your environment.
+# Find paths with: which kiro-cli && which npx && which node
+Environment=PATH=/home/ubuntu/.nvm/versions/node/v24.13.0/bin:/home/ubuntu/.local/bin:/path/to/kirocli-chatbot-gateway/venv/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/path/to/kirocli-chatbot-gateway/.env
+
+[Install]
+WantedBy=multi-user.target

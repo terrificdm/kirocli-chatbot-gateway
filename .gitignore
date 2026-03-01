@@ -1,15 +1,26 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+dist/
+build/
 
 # Virtual environments
 venv/
 .venv/
 env/
 
-# Environment variables
+# Environment variables (keep .env.example)
 .env
+.env.*
+!.env.example
+
+# Discord policy (contains real IDs, keep example)
+discord_policy.json
+
+# Service file (contains environment-specific paths, keep example)
+kiro-gateway.service
 
 # Logs
 *.log
@@ -20,6 +31,3 @@ env/
 
 # OS files
 .DS_Store
-
-# Build artifacts
-*.egg-info/
