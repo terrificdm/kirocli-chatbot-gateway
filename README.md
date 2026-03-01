@@ -1,8 +1,8 @@
-# KiroCLI Chatbot Gateway
+# KiroCLI Bot Gateway
 
 [中文文档](README.zh-CN.md)
 
-Multi-platform chatbot gateway that bridges chat platforms to Kiro CLI via ACP protocol.
+Multi-platform bot gateway for Kiro CLI via ACP protocol.
 
 ## Supported Platforms
 
@@ -105,7 +105,7 @@ DISCORD_WORKSPACE_MODE=fixed     # Team Discord - shared project
 ## Installation
 
 ```bash
-cd kirocli-chatbot-gateway
+cd kirocli-bot-gateway
 pip install -e .
 ```
 
@@ -374,7 +374,7 @@ Reply: y(allow) / n(deny) / t(trust)
 ## Project Structure
 
 ```
-kirocli-chatbot-gateway/
+kirocli-bot-gateway/
 ├── main.py                        # Entry point
 ├── gateway.py                     # Core gateway logic
 ├── config.py                      # Configuration management

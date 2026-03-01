@@ -1,7 +1,7 @@
 [project]
-name = "kirocli-chatbot-gateway"
+name = "kirocli-bot-gateway"
 version = "0.1.0"
-description = "Multi-platform chatbot gateway for Kiro CLI"
+description = "Multi-platform bot gateway for Kiro CLI via ACP protocol"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,6 +1,6 @@
-# KiroCLI 聊天机器人网关
+# KiroCLI Bot Gateway
 
-多平台聊天机器人网关，通过 ACP 协议连接各种聊天平台到 Kiro CLI。
+Multi-platform bot gateway for Kiro CLI via ACP protocol.
 
 ## 支持的平台
 
@@ -103,7 +103,7 @@ DISCORD_WORKSPACE_MODE=fixed     # 团队 Discord - 共享项目
 ## 安装
 
 ```bash
-cd kirocli-chatbot-gateway
+cd kirocli-bot-gateway
 pip install -e .
 ```
 
@@ -372,7 +372,7 @@ journalctl -u kiro-gateway -f
 ## 项目结构
 
 ```
-kirocli-chatbot-gateway/
+kirocli-bot-gateway/
 ├── main.py                        # 入口
 ├── gateway.py                     # 核心网关逻辑
 ├── config.py                      # 配置管理

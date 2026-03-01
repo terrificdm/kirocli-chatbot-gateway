@@ -1,4 +1,4 @@
-"""Entry point for kirocli-chatbot-gateway."""
+"""Entry point for kirocli-bot-gateway."""
 
 import logging
 import sys

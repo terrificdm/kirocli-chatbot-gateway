@@ -1,4 +1,4 @@
-"""Configuration management for kirocli-chatbot-gateway."""
+"""Configuration management for kirocli-bot-gateway."""
 
 import json
 import logging
